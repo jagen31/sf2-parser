@@ -2,6 +2,7 @@
 
 (require "parse-sf2.rkt")
 (provide construct-presets construct-insts
+         (struct-out zone)
          (struct-out preset) (struct-out inst))
 
 (module+ test (require rackunit))
@@ -48,7 +49,9 @@
        (println ix)
        (println ix*)
        (define gens* (sublist gens ix ix*))
-       (cons (construct-gens sample-ix gens*) (construct-zones (cons next more)))]))
+       (define gens** (construct-gens sample-ix gens*))
+       (define rest (construct-zones (cons next more)))
+       (if gens** (cons gens** rest) rest)]))
 
   (match headers
     [(cons _ '()) '()]
