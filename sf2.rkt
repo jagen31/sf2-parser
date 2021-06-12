@@ -7,12 +7,12 @@
 
 (module+ test (require rackunit))
 
-;; zones is a list of lists of generators
 (struct preset [name zones] #:transparent)
 (struct inst [name zones] #:transparent)
 
 ;; ix is an instrument for presets, and a sample for inst
-(struct zone [ix range aux] #:transparent)
+;; alt-key is an override for the root key of the sample.
+(struct zone [ix range alt-key aux] #:transparent)
 
 (define (sublist li start end)
   (take (drop li start) (- end start)))
@@ -21,33 +21,29 @@
  (check-equal? (sublist '() 0 0) '())
  (check-equal? (sublist '(1 2 3 4) 1 3) '(2 3)))
 
+;; sample-ix is either the index of the instrument or the index of the
+;; sample, depending on whether we are parsing pgens or igens
 (define (construct-gens sample-ix gens)
-  (println "Here")
-  (match gens
-   ['() '()]
-   ;; has key range
-   [(list (gen 43 data) gens ... (gen (? (curry = sample-ix)) data2))
-    (define data* (bytes->list data))
-    (zone (integer-bytes->integer data2 #f) 
-          (cons (car data*)
-                (cdr data*))
-          gens)]
-   [(list gens ... (gen (? (curry = sample-ix)) data2))
-    (zone (integer-bytes->integer data2 #f) #f gens)]
-   ;; ignoring global
-   [_ #f]))
+  (define-values (ix range key aux)
+    (for/fold ([ix #f] [range #f] [key #f] [aux '()])
+              ([g gens])
+      (match g
+        [(gen x data) #:when (= sample-ix x)
+         (values (integer-bytes->integer data #f #f) range key aux)]
+        [(gen 43 data)
+         (values ix (bytes->list data) key aux)]
+        [(gen 58 data) (values ix range (integer-bytes->integer data #f #f) aux)]
+        ;; has key range
+        [_ (values ix range key (cons g aux))])))
+  (zone ix range key aux))
 
 
 (define (construct-zoned construct sample-ix headers bags gens)
 
   (define (construct-zones bags)
-    (println "constructing zones")
-    (println bags)
     (match bags
       [(cons _ '()) '()]
       [(list* (bag ix) (and next (bag ix*)) more)
-       (println ix)
-       (println ix*)
        (define gens* (sublist gens ix ix*))
        (define gens** (construct-gens sample-ix gens*))
        (define rest (construct-zones (cons next more)))
@@ -57,12 +53,7 @@
     [(cons _ '()) '()]
     [(list* (header name ix) (and next (header _ ix*)) more)
      ;; add a dummy so we can get the end of last bag
-     (println "constructing")
-     (println name)
-     (println ix)
-     (println ix*)
      (define bags* (sublist bags ix (add1 ix*)))
-     (println bags*)
      (define zones (construct-zones bags*))
      (cons (construct name zones) 
            (construct-zoned construct sample-ix (cons next more) bags gens))]))

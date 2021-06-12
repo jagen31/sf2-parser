@@ -16,7 +16,6 @@
   
   (define (parse-chunk-header data)
     (define name (read-bytes 4 data))
-    (println name)
     (define len (integer-bytes->integer (read-bytes 4 data) #f))
     (chunk-header (bytes->string/latin-1 name) len))
 
@@ -40,7 +39,6 @@
       [(<= len 0) '()]
       [else
        (define-values (ck bytes) (parse-chunk data))
-       (println ck)
        (cons ck (parse-subchunks (- len 8 bytes) data))]))
   
   (define head (parse-chunk-header data))
@@ -52,9 +50,7 @@
      (findf
       (match-lambda
         [(list-chunk _ _ type)
-         (println "here")
-         (println type)
          (equal? name type)]
         [(chunk (chunk-header name* _) _) (equal? name name*)])
       data)]))
-     
+
