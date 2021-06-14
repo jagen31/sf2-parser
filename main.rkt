@@ -1,8 +1,9 @@
-#lang racket
-(require "riff.rkt" "parse-sf2.rkt" "sf2.rkt" ffi/vector rsound)
-(provide parse-soundfont 
-         get-sample-ix/key
-         sample-ix->rsound)
+#lang racket/base
+(require "riff.rkt" "parse-sf2.rkt" "sf2.rkt"
+         ffi/vector rsound
+         racket/match racket/function
+         data/interval-map)
+(provide parse-soundfont load-preset preset-midi->rsound)
 
 (define (parse-soundfont data)
   (define-values (riff _) (parse-chunk data))
@@ -39,39 +40,51 @@
   (soundfont presets insts shdrs sample-data))
 
 (struct soundfont [presets insts samples sample-data])
+(struct sample [root-key data rate start-loop end-loop])
 
-(define fluid (parse-soundfont (open-input-file "FluidR3_GM.sf2")))
-
-(define (get-sample-ix/key sf num name)
-  (let/ec break
+(define (load-preset sf name)
   (for/or ([p (soundfont-presets sf)])
     (match p
       [(preset name* zones) #:when (equal? name name*)
-       (for/or ([z zones])
+       (for/fold ([map (make-interval-map)])
+                 ([z zones])
          (match z
-           [(zone (? number? inst-ix)
-                  (or #f (? (λ(p) (and (<= (car p) num) (>= (cadr p) num))))) _ _)
+           [(zone (? number? inst-ix) range _ _)
+            (match-define (cons lo hi) (or range (cons 0 100)))
             (match (list-ref (soundfont-insts sf) inst-ix)
               [(inst _ zones)
                (for/fold ([acc '()])
                          ([z zones])
                  (match z
-                   [(zone samp-ix (or #f (? (λ(p) (and (<= (car p) num) (>= (cadr p) num))))) key _)
-                    (println z)
-                    (cons (cons samp-ix key) acc)]
+                   [(zone samp-ix (cons lo* hi*) root-key* _)
+                    #:when (and (>= lo* lo*) (<= hi* hi))
+                    (match (list-ref (soundfont-samples sf) samp-ix)
+                      [(sample-header _ start end root-key rate sl el)
+                       (define data (subbytes (soundfont-sample-data sf) (* start 2) (* end 2)))
+                       (interval-map-set!
+                        map lo*
+                        (add1 hi*)
+                        (sample (or root-key* root-key) data rate sl el))
+                       map])]
                    [_ acc]))])]
-           [_ #f]))]
-      [_ #f]))))
+           [_ map]))]
+      [_ #f])))
 
-(define (sample-ix->rsound sf n key #:override-key [root-key* #f])
-  (println "here")
-  (match (list-ref (soundfont-samples sf) n)
-    [(sample-header _ start end root-key rate)
-     (println (list-ref (soundfont-samples sf) n))
-     (println rate)
-     (define data (subbytes (soundfont-sample-data sf) (* start 2) (* end 2)))
+(define (key+sample->rsound key s len)
+  (match s
+    [(sample root-key data rate sl el)
+     (define diff (- len (bytes-length data)))
      (define data*
-       (let loop ([bs (bytes->list data)])
+       (if (< diff 0)
+           data
+           (let ()
+             (define loop-len (- el sl))
+             (define num-loops (ceiling (/ diff loop-len)))
+             (define loop (subbytes data (* sl 2) (* el 2)))
+             (define loop-data (apply bytes-append (build-list num-loops (λ(_) loop))))
+             (bytes-append data loop-data))))
+     (define data**
+       (let loop ([bs (bytes->list data*)])
          (match bs
            ['() '()]
            [(cons a '()) (loop (list a 0))]
@@ -79,14 +92,13 @@
             (define samp (integer-bytes->integer (bytes a b) #t #f))
             (cons samp (cons samp (loop more)))]
            [(cons a more) '()])))
-     (println (length data*))
-     (println (midi-note-num->pitch key))
-     (println (midi-note-num->pitch (or root-key* root-key)))
-     (resample/interp (/ (midi-note-num->pitch key)
-                         (midi-note-num->pitch (or root-key* root-key)))
-                      (vec->rsound (list->s16vector data*) rate))]))
+     (define sound (vec->rsound (list->s16vector data**) rate))
+     (resample-to-rate 44100
+                       (resample/interp (/ (midi-note-num->pitch key)
+                                           (midi-note-num->pitch root-key))
+                                        sound))]))
 
+(define (preset-midi-sample preset midi) (interval-map-ref preset midi))
 
-(match-define (cons vio vio-key) (car (get-sample-ix/key fluid 62 "Viola")))
-(define l (sample-ix->rsound fluid vio 62 #:override-key vio-key))
-(play l)
+(define (preset-midi->rsound preset midi len)
+  (key+sample->rsound midi (preset-midi-sample preset midi) len))

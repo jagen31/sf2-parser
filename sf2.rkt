@@ -31,9 +31,10 @@
         [(gen x data) #:when (= sample-ix x)
          (values (integer-bytes->integer data #f #f) range key aux)]
         [(gen 43 data)
-         (values ix (bytes->list data) key aux)]
+         (values ix
+                 (match (bytes->list data) [(list a b) (cons a b)])
+                 key aux)]
         [(gen 58 data) (values ix range (integer-bytes->integer data #f #f) aux)]
-        ;; has key range
         [_ (values ix range key (cons g aux))])))
   (zone ix range key aux))
 
@@ -61,4 +62,3 @@
 
 (define construct-presets (curry construct-zoned preset 41))
 (define construct-insts (curry construct-zoned inst 53))
-

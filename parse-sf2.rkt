@@ -24,7 +24,7 @@
 ;; no type theory pun intended
 (struct inst-gen gen [] #:transparent)
 
-(struct sample-header [name start end pitch rate] #:transparent)
+(struct sample-header [name start end pitch rate start-loop end-loop] #:transparent)
 
 (define (parse-name data)
   (bytes->string/latin-1
@@ -58,9 +58,9 @@
   (define name (parse-name data))
   (define start (integer-bytes->integer (read-bytes 4 data) #f #f))
   (define end (integer-bytes->integer (read-bytes 4 data) #f #f))
-  (read-bytes 8 data)
+  (define start-loop (- (integer-bytes->integer (read-bytes 4 data) #f #f) start))
+  (define end-loop (- (integer-bytes->integer (read-bytes 4 data) #f #f) start))
   (define rate (integer-bytes->integer (read-bytes 4 data) #f #f))
   (define pitch (read-byte data))
   (read-bytes 5 data)
-  (sample-header name start end pitch rate))
-
+  (sample-header name start end pitch rate start-loop end-loop))
