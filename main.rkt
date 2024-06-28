@@ -3,7 +3,7 @@
          ffi/vector rsound
          racket/match racket/function
          data/interval-map)
-(provide parse-soundfont load-preset preset-midi->rsound)
+(provide (struct-out soundfont) (all-from-out "sf2.rkt") (all-from-out "parse-sf2.rkt") parse-soundfont load-preset preset-midi->rsound)
 
 (define (parse-soundfont data)
   (define-values (riff _) (parse-chunk data))
@@ -79,7 +79,7 @@
            data
            (let ()
              (define loop-len (- el sl))
-             (define num-loops (ceiling (/ diff loop-len)))
+             (define num-loops (inexact->exact (ceiling (/ diff loop-len))))
              (define loop (subbytes data (* sl 2) (* el 2)))
              (define loop-data (apply bytes-append (build-list num-loops (λ(_) loop))))
              (bytes-append data loop-data))))
